@@ -1,0 +1,967 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// SCHOOL SETTINGS
+// ============================================
+
+model SchoolSettings {
+  id                  String  @id @default(cuid())
+  schoolName          String  @default("Excellence Academy")
+  schoolCode          String?
+  schoolAddress       String?
+  schoolPhone         String?
+  schoolEmail         String?
+  schoolLogo          String?
+  schoolMotto         String? @default("Excellence in Education")
+  principalName       String?
+  establishedYear     Int?
+  currentAcademicYear String? @default("2024/2025")
+
+  defaultTermType TermType @default(FIRST_TERM)
+
+  // Exam Settings
+  gradingSystem       String @default("STANDARD")
+  customGrades        Json?
+  defaultPassingMarks Int    @default(40)
+  defaultTotalMarks   Int    @default(100)
+  defaultExamDuration Int    @default(60)
+  enabledExamTypes    Json?
+
+  // System settings
+  allowParentLogin  Boolean @default(true)
+  allowStudentLogin Boolean @default(true)
+  defaultLanguage   String  @default("en")
+  timezone          String  @default("Africa/Accra")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("school_settings")
+}
+
+// ============================================
+// USERS & EMPLOYEES (UNIFIED - NO REDUNDANCY)
+// ============================================
+
+model User {
+  id       String @id @default(cuid())
+  email    String @unique
+  password String
+  role     Role
+
+  firstName String
+  lastName  String
+  phone     String?
+  avatar    String?
+
+  isActive     Boolean   @default(true)
+  lastLogin    DateTime?
+  refreshToken String?
+
+  // Relations
+  employee      Employee?
+  student       Student?
+  parentProfile ParentProfile?
+
+  announcements     Announcement[]
+  announcementReads AnnouncementRead[]
+
+  // Fee transaction relations (opposite of FeeTransaction.recorder)
+  recordedTransactions FeeTransaction[] @relation("RecordedBy")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([email])
+  @@index([role])
+  @@map("users")
+}
+
+// ONE unified Employee model - replaces TeacherProfile, AccountantProfile, Staff
+model Employee {
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  employeeId    String       @unique
+  employeeType  EmployeeType
+  department    String?
+  position      String?
+  joinDate      DateTime     @default(now())
+  qualification String?
+  subjects      String[] // Subjects taught (for teachers)
+  salary        Float?
+  bankAccount   String?
+
+  // Leave Management (embedded, no separate table)
+  leaveRequests Json? @default("[]") // Store leaves as JSON array for simplicity
+
+  // Relations
+  teacherClasses       Class[] // Classes where employee is class teacher
+  teacherSubjects      TeacherSubject[] // Subjects taught by this employee
+  feeTransactions      FeeTransaction[]     @relation("ProcessedBy")
+  approvedScholarships StudentScholarship[] @relation("ApprovedBy")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([employeeId])
+  @@index([employeeType])
+  @@map("employees")
+}
+
+// ============================================
+// STUDENTS & PARENTS
+// ============================================
+
+model Student {
+  id              String        @id @default(cuid())
+  admissionNumber String        @unique
+  firstName       String
+  lastName        String
+  dateOfBirth     DateTime
+  gender          Gender
+  address         String?
+  status          StudentStatus @default(ACTIVE)
+  classId         String?
+  guardianId      String?
+  userId          String?       @unique
+
+  user     User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+  class    Class?    @relation(fields: [classId], references: [id], onDelete: SetNull)
+  guardian Guardian? @relation(fields: [guardianId], references: [id], onDelete: SetNull)
+
+  // Fee Management
+  scholarships    StudentScholarship[]
+  feeTransactions FeeTransaction[]
+  feeSummaries    StudentFeeSummary[]
+
+  // Other
+  attendances      Attendance[]
+  examResults      ExamResult[]
+  assessmentScores AssessmentScore[]
+  reportCards      ReportCard[]
+  promotions       StudentPromotion[]
+
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  feeStructures  FeeStructure[]
+  payments       Payment[]
+  paymentBatches PaymentBatch[]
+
+  @@index([admissionNumber])
+  @@index([classId])
+  @@index([status])
+  @@map("students")
+}
+
+model Guardian {
+  id              String         @id @default(cuid())
+  name            String
+  phone           String         @unique
+  email           String?
+  address         String?
+  parentProfileId String?        @unique
+  parentProfile   ParentProfile? @relation(fields: [parentProfileId], references: [id], onDelete: SetNull)
+  students        Student[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([phone])
+  @@map("guardians")
+}
+
+model ParentProfile {
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  occupation   String?
+  relationship String    @default("Parent")
+  guardian     Guardian?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("parent_profiles")
+}
+
+// ============================================
+// CLASSES & SUBJECTS
+// ============================================
+
+model Class {
+  id               String    @id @default(cuid())
+  name             String
+  gradeLevel       Int
+  stream           String?
+  teacherProfileId String?   @unique // References Employee.id
+  teacherProfile   Employee? @relation(fields: [teacherProfileId], references: [id], onDelete: SetNull)
+
+  students        Student[]
+  classTerms      ClassTerm[]
+  classSubjects   ClassSubject[]
+  teacherSubjects TeacherSubject[]
+  examSubjects    ExamSubject[]
+  assessments     Assessment[]
+  announcements   Announcement[]
+  promotionsFrom  StudentPromotion[] @relation("FromClass")
+  promotionsTo    StudentPromotion[] @relation("ToClass")
+
+  // Fee Management
+  classFeeTemplates ClassFeeTemplate[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([name, gradeLevel, stream])
+  @@index([gradeLevel])
+  @@map("classes")
+}
+
+model Subject {
+  id          String  @id @default(cuid())
+  name        String  @unique
+  code        String  @unique
+  description String?
+  category    String?
+  isActive    Boolean @default(true)
+
+  teacherSubjects TeacherSubject[]
+  classSubjects   ClassSubject[]
+  examSubjects    ExamSubject[]
+  assessments     Assessment[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([code])
+  @@map("subjects")
+}
+
+model TeacherSubject {
+  id        String @id @default(cuid())
+  teacherId String
+  subjectId String
+  classId   String
+
+  teacher Employee @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+  subject Subject  @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  class   Class    @relation(fields: [classId], references: [id], onDelete: Cascade)
+
+  @@unique([teacherId, subjectId, classId])
+  @@index([teacherId])
+  @@index([subjectId])
+  @@index([classId])
+  @@map("teacher_subjects")
+}
+
+model ClassSubject {
+  id        String @id @default(cuid())
+  classId   String
+  subjectId String
+
+  class   Class   @relation(fields: [classId], references: [id], onDelete: Cascade)
+  subject Subject @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+
+  @@unique([classId, subjectId])
+  @@index([classId])
+  @@index([subjectId])
+  @@map("class_subjects")
+}
+
+// ============================================
+// ACADEMIC TERMS
+// ============================================
+
+model AcademicTerm {
+  id           String   @id @default(cuid())
+  name         String
+  type         TermType
+  academicYear String
+  startDate    DateTime
+  endDate      DateTime
+  isActive     Boolean  @default(false)
+
+  exams          Exam[]
+  classTerms     ClassTerm[]
+  assessments    Assessment[]
+  reportCards    ReportCard[]
+  promotions     StudentPromotion[]
+  paymentBatches PaymentBatch[]
+
+  // Fee Management
+  classFeeTemplates ClassFeeTemplate[]
+  feeTransactions   FeeTransaction[]
+  feeSummaries      StudentFeeSummary[]
+
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  studentScholarships StudentScholarship[]
+  feeStructures       FeeStructure[]
+
+  @@unique([type, academicYear])
+  @@index([academicYear])
+  @@index([isActive])
+  @@map("academic_terms")
+}
+
+model ClassTerm {
+  id        String    @id @default(cuid())
+  classId   String
+  termId    String
+  startDate DateTime?
+  endDate   DateTime?
+
+  class Class        @relation(fields: [classId], references: [id], onDelete: Cascade)
+  term  AcademicTerm @relation(fields: [termId], references: [id], onDelete: Cascade)
+
+  @@unique([classId, termId])
+  @@index([classId])
+  @@index([termId])
+  @@map("class_terms")
+}
+
+// ============================================
+// FEE MANAGEMENT - CLEAN TEMPLATE-BASED
+// ============================================
+
+model FeeType {
+  id          String      @id @default(cuid())
+  name        String      @unique
+  description String?
+  category    FeeCategory @default(TUITION)
+  isActive    Boolean     @default(true)
+
+  templateItems FeeTemplateItem[]
+
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  studentScholarships StudentScholarship[]
+  feeStructures       FeeStructure[]
+  transactionItems    TransactionItem[]
+  paymentBatchItems   PaymentBatchItem[]
+
+  @@map("fee_types")
+}
+
+model FeeTemplate {
+  id          String  @id @default(cuid())
+  name        String  @unique
+  description String?
+  isActive    Boolean @default(true)
+  isDefault   Boolean @default(false)
+
+  items            FeeTemplateItem[]
+  classAssignments ClassFeeTemplate[]
+
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  studentScholarships StudentScholarship[]
+
+  @@map("fee_templates")
+}
+
+model FeeTemplateItem {
+  id         String  @id @default(cuid())
+  templateId String
+  feeTypeId  String
+  amount     Float
+  isOptional Boolean @default(false)
+
+  template FeeTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  feeType  FeeType     @relation(fields: [feeTypeId], references: [id], onDelete: Cascade)
+
+  @@unique([templateId, feeTypeId])
+  @@map("fee_template_items")
+}
+
+model ClassFeeTemplate {
+  id         String  @id @default(cuid())
+  templateId String
+  classId    String
+  termId     String
+  isActive   Boolean @default(true)
+
+  template FeeTemplate  @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  class    Class        @relation(fields: [classId], references: [id], onDelete: Cascade)
+  term     AcademicTerm @relation(fields: [termId], references: [id], onDelete: Cascade)
+
+  @@unique([templateId, classId, termId])
+  @@index([classId, termId])
+  @@map("class_fee_templates")
+}
+
+model StudentScholarship {
+  id         String  @id @default(cuid())
+  studentId  String
+  feeTypeId  String? // NULL = applies to all fee types
+  templateId String? // NULL = applies to all templates
+  termId     String
+
+  discountType  DiscountType
+  discountValue Float
+  reason        String?
+  approvedBy    String?
+  approvedAt    DateTime?    @default(now())
+  startDate     DateTime     @default(now())
+  endDate       DateTime?
+  isActive      Boolean      @default(true)
+
+  student  Student      @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  feeType  FeeType?     @relation(fields: [feeTypeId], references: [id], onDelete: SetNull)
+  template FeeTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  term     AcademicTerm @relation(fields: [termId], references: [id], onDelete: Cascade)
+  approver Employee?    @relation("ApprovedBy", fields: [approvedBy], references: [id], onDelete: SetNull)
+
+  @@unique([studentId, feeTypeId, templateId, termId])
+  @@index([studentId])
+  @@index([termId])
+  @@map("student_scholarships")
+}
+
+// ============================================
+// FEE STRUCTURES & PAYMENTS
+// ============================================
+
+model FeeStructure {
+  id        String    @id @default(cuid())
+  feeTypeId String
+  studentId String
+  amount    Float
+  termId    String
+  dueDate   DateTime?
+
+  feeType FeeType      @relation(fields: [feeTypeId], references: [id], onDelete: Cascade)
+  student Student      @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  term    AcademicTerm @relation(fields: [termId], references: [id], onDelete: Cascade)
+
+  payments Payment[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([feeTypeId, studentId, termId])
+  @@index([feeTypeId])
+  @@index([studentId])
+  @@index([termId])
+  @@map("fee_structures")
+}
+
+model Payment {
+  id             String        @id @default(cuid())
+  studentId      String
+  feeStructureId String
+  amount         Float
+  amountPaid     Float
+  balance        Float?
+  paymentDate    DateTime      @default(now())
+  paymentMethod  PaymentMethod @default(CASH)
+  receiptNumber  String        @unique
+  transactionRef String?
+  status         PaymentStatus @default(SUCCESS)
+  recordedBy     String?
+  remarks        String?
+
+  student      Student      @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  feeStructure FeeStructure @relation(fields: [feeStructureId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([studentId])
+  @@index([feeStructureId])
+  @@index([receiptNumber])
+  @@map("payments")
+}
+
+model FeeTransaction {
+  id             String        @id @default(cuid())
+  studentId      String
+  termId         String
+  amount         Float
+  paymentDate    DateTime      @default(now())
+  paymentMethod  PaymentMethod @default(CASH)
+  receiptNumber  String        @unique
+  transactionRef String?
+  status         PaymentStatus @default(SUCCESS)
+  remarks        String?
+  recordedBy     String?
+  processedBy    String?
+
+  student   Student      @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  term      AcademicTerm @relation(fields: [termId], references: [id], onDelete: Cascade)
+  recorder  User?        @relation("RecordedBy", fields: [recordedBy], references: [id], onDelete: SetNull)
+  processor Employee?    @relation("ProcessedBy", fields: [processedBy], references: [id], onDelete: SetNull)
+
+  items TransactionItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([studentId])
+  @@index([termId])
+  @@map("fee_transactions")
+}
+
+model TransactionItem {
+  id              String @id @default(cuid())
+  transactionId   String
+  feeTypeId       String
+  amount          Float
+  discountApplied Float  @default(0)
+  netAmount       Float
+
+  transaction FeeTransaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  feeType     FeeType        @relation(fields: [feeTypeId], references: [id], onDelete: Cascade)
+
+  @@index([transactionId])
+  @@map("transaction_items")
+}
+
+model PaymentBatch {
+  id             String        @id @default(cuid())
+  receiptNumber  String        @unique
+  studentId      String
+  termId         String
+  totalAmount    Float
+  paymentMethod  PaymentMethod
+  transactionRef String?
+  remarks        String?
+  status         PaymentStatus @default(SUCCESS)
+  recordedBy     String?
+  paymentDate    DateTime      @default(now())
+
+  student Student            @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  term    AcademicTerm       @relation(fields: [termId], references: [id], onDelete: Cascade)
+  items   PaymentBatchItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([studentId])
+  @@index([termId])
+  @@map("payment_batches")
+}
+
+model PaymentBatchItem {
+  id             String @id @default(cuid())
+  paymentBatchId String
+  feeTypeId      String
+  amount         Float
+
+  paymentBatch PaymentBatch @relation(fields: [paymentBatchId], references: [id], onDelete: Cascade)
+  feeType      FeeType      @relation(fields: [feeTypeId], references: [id], onDelete: Cascade)
+
+  @@index([paymentBatchId])
+  @@map("payment_batch_items")
+}
+
+model StudentFeeSummary {
+  id             String   @id @default(cuid())
+  studentId      String
+  termId         String
+  totalFees      Float    @default(0)
+  totalPaid      Float    @default(0)
+  balance        Float    @default(0)
+  lastCalculated DateTime @default(now())
+
+  student Student      @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  term    AcademicTerm @relation(fields: [termId], references: [id], onDelete: Cascade)
+
+  @@unique([studentId, termId])
+  @@index([studentId])
+  @@index([termId])
+  @@map("student_fee_summaries")
+}
+
+// ============================================
+// EXAMS & RESULTS
+// ============================================
+
+model Exam {
+  id           String   @id @default(cuid())
+  name         String
+  type         ExamType
+  termId       String
+  academicYear String
+
+  startDate DateTime
+  endDate   DateTime
+
+  isPublished Boolean @default(false)
+
+  term         AcademicTerm  @relation(fields: [termId], references: [id], onDelete: Cascade)
+  examSubjects ExamSubject[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([termId, type, academicYear])
+  @@index([termId])
+  @@map("exams")
+}
+
+model ExamSubject {
+  id        String @id @default(cuid())
+  examId    String
+  classId   String
+  subjectId String
+
+  examDate     DateTime
+  startTime    String?
+  duration     Int?
+  totalMarks   Float    @default(100.0)
+  passingMarks Float    @default(40.0)
+
+  exam    Exam         @relation(fields: [examId], references: [id], onDelete: Cascade)
+  class   Class        @relation(fields: [classId], references: [id], onDelete: Cascade)
+  subject Subject      @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  results ExamResult[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([examId, classId, subjectId])
+  @@index([examId])
+  @@index([classId])
+  @@index([subjectId])
+  @@map("exam_subjects")
+}
+
+model ExamResult {
+  id            String @id @default(cuid())
+  examSubjectId String
+  studentId     String
+
+  marksObtained Float?
+  percentage    Float?
+  grade         GradeScale?
+  remarks       String?
+
+  isAbsent    Boolean   @default(false)
+  isFinalized Boolean   @default(false)
+  gradedBy    String?
+  gradedAt    DateTime?
+
+  examSubject ExamSubject @relation(fields: [examSubjectId], references: [id], onDelete: Cascade)
+  student     Student     @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([examSubjectId, studentId])
+  @@index([examSubjectId])
+  @@index([studentId])
+  @@map("exam_results")
+}
+
+// ============================================
+// REPORT CARDS
+// ============================================
+
+model ReportCard {
+  id               String   @id @default(cuid())
+  studentId        String
+  termId           String
+  teacherRemarks   String?
+  principalRemarks String?
+  updatedBy        String?
+  generatedAt      DateTime @default(now())
+
+  student Student      @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  term    AcademicTerm @relation(fields: [termId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([studentId, termId])
+  @@index([studentId])
+  @@index([termId])
+  @@map("report_cards")
+}
+
+// ============================================
+// STUDENT PROMOTION
+// ============================================
+
+model StudentPromotion {
+  id                   String          @id @default(cuid())
+  studentId            String
+  fromClassId          String
+  toClassId            String
+  termId               String
+  status               PromotionStatus
+  attendancePercentage Float?
+  averageScore         Float?
+  subjectsTaken        Int?
+  subjectsPassed       Int?
+  subjectsFailed       Int?
+  remarks              String?
+
+  student   Student      @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  fromClass Class        @relation("FromClass", fields: [fromClassId], references: [id], onDelete: Cascade)
+  toClass   Class        @relation("ToClass", fields: [toClassId], references: [id], onDelete: Cascade)
+  term      AcademicTerm @relation(fields: [termId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@index([studentId])
+  @@index([fromClassId])
+  @@index([toClassId])
+  @@index([termId])
+  @@map("student_promotions")
+}
+
+// ============================================
+// ATTENDANCE
+// ============================================
+
+model Attendance {
+  id        String           @id @default(cuid())
+  studentId String
+  date      DateTime
+  status    AttendanceStatus
+
+  student Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([studentId, date])
+  @@index([studentId])
+  @@index([date])
+  @@map("attendances")
+}
+
+// ============================================
+// ANNOUNCEMENTS
+// ============================================
+
+model Announcement {
+  id       String   @id @default(cuid())
+  title    String
+  content  String
+  priority Priority @default(MEDIUM)
+  audience Audience @default(ALL)
+  classId  String?
+  authorId String
+
+  author User   @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  class  Class? @relation(fields: [classId], references: [id], onDelete: SetNull)
+
+  reads AnnouncementRead[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([authorId])
+  @@index([classId])
+  @@map("announcements")
+}
+
+model AnnouncementRead {
+  id             String   @id @default(cuid())
+  announcementId String
+  userId         String
+  readAt         DateTime @default(now())
+
+  announcement Announcement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([announcementId, userId])
+  @@index([announcementId])
+  @@index([userId])
+  @@map("announcement_reads")
+}
+
+// ============================================
+// CONTINUOUS ASSESSMENT
+// ============================================
+
+model AssessmentType {
+  id          String  @id @default(cuid())
+  name        String  @unique
+  weight      Float   @default(0)
+  description String?
+  isActive    Boolean @default(true)
+
+  assessments Assessment[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("assessment_types")
+}
+
+model Assessment {
+  id         String   @id @default(cuid())
+  typeId     String
+  subjectId  String
+  classId    String
+  termId     String
+  name       String
+  totalMarks Float    @default(100)
+  date       DateTime
+
+  type    AssessmentType    @relation(fields: [typeId], references: [id], onDelete: Cascade)
+  subject Subject           @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  class   Class             @relation(fields: [classId], references: [id], onDelete: Cascade)
+  term    AcademicTerm      @relation(fields: [termId], references: [id], onDelete: Cascade)
+  scores  AssessmentScore[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([typeId])
+  @@index([subjectId])
+  @@index([classId])
+  @@index([termId])
+  @@map("assessments")
+}
+
+model AssessmentScore {
+  id            String  @id @default(cuid())
+  assessmentId  String
+  studentId     String
+  marksObtained Float
+  percentage    Float?
+  remarks       String?
+
+  assessment Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  student    Student    @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([assessmentId, studentId])
+  @@index([assessmentId])
+  @@index([studentId])
+  @@map("assessment_scores")
+}
+
+// ============================================
+// ENUMS
+// ============================================
+
+enum Role {
+  SUPER_ADMIN
+  ADMIN
+  EMPLOYEE
+  PARENT
+  STUDENT
+}
+
+enum EmployeeType {
+  TEACHER
+  ACCOUNTANT
+  ADMIN_STAFF
+  CANTEEN
+  LIBRARIAN
+  LAB_ASSISTANT
+  SECURITY
+  CLEANER
+  DRIVER
+  OTHER
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+}
+
+enum StudentStatus {
+  ACTIVE
+  INACTIVE
+  GRADUATED
+  SUSPENDED
+}
+
+enum PaymentStatus {
+  SUCCESS
+  PENDING
+  FAILED
+}
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  LATE
+}
+
+enum TermType {
+  FIRST_TERM
+  SECOND_TERM
+  THIRD_TERM
+}
+
+enum ExamType {
+  MID_TERM
+  END_OF_TERM
+  MOCK
+  FINAL
+}
+
+enum GradeScale {
+  A1
+  B2
+  B3
+  C4
+  C5
+  C6
+  D7
+  E8
+  F9
+}
+
+enum FeeCategory {
+  TUITION
+  PTA
+  CANTEEN
+  SPORTS
+  EXAM
+  LIBRARY
+  ICT
+  UNIFORM
+  TRANSPORT
+  OTHER
+}
+
+enum PaymentMethod {
+  CASH
+  MOBILE_MONEY
+  BANK_TRANSFER
+  CHEQUE
+  ONLINE
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum Audience {
+  ALL
+  STAFF
+  STUDENTS
+  PARENTS
+  CLASS
+}
+
+enum PromotionStatus {
+  PROMOTED
+  REPEATED
+  PENDING
+}
+
+enum DiscountType {
+  PERCENTAGE
+  FIXED_AMOUNT
+}

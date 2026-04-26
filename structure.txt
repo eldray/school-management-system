@@ -1,0 +1,83 @@
+medical-app/
+├── backend/
+│   ├── src/
+│   │   ├── models/
+│   │   │   ├── Disease.js
+│   │   │   ├── Drug.js
+│   │   │   ├── Investigation.js
+│   │   │   └── GdrgCode.js
+│   │   ├── scripts/
+│   │   │   ├── importData.js
+│   │   │   └── extractDrugs.js
+│   │   ├── controllers/
+│   │   │   ├── diseaseController.js
+│   │   │   ├── drugController.js
+│   │   │   └── searchController.js
+│   │   ├── routes/
+│   │   │   ├── diseases.js
+│   │   │   ├── drugs.js
+│   │   │   └── search.js
+│   │   ├── services/
+│   │   │   └── searchService.js
+│   │   ├── config/
+│   │   │   └── database.js
+│   │   └── app.js
+│   ├── package.json
+│   ├── .env
+│   └── diseases.json (your file)
+frontend/
+├── public/
+│   ├── index.html
+│   ├── manifest.json
+│   └── icon-192.png
+├── src/
+│   ├── components/
+│   │   ├── layout/
+│   │   │   ├── Header.jsx
+│   │   │   ├── Footer.jsx
+│   │   │   └── Layout.jsx
+│   │   ├── common/
+│   │   │   ├── LoadingSpinner.jsx
+│   │   │   ├── ErrorAlert.jsx
+│   │   │   ├── SearchBar.jsx
+│   │   │   └── Pagination.jsx
+│   │   ├── disease/
+│   │   │   ├── DiseaseCard.jsx
+│   │   │   ├── DiseaseDetail.jsx
+│   │   │   ├── SymptomList.jsx
+│   │   │   └── TreatmentTable.jsx
+│   │   ├── drug/
+│   │   │   ├── DrugCard.jsx
+│   │   │   ├── DrugDetail.jsx
+│   │   │   ├── DosageTable.jsx
+│   │   │   ├── InteractionWarning.jsx
+│   │   │   └── DrugCompare.jsx
+│   │   └── symptom/
+│   │       ├── SymptomChecker.jsx
+│   │       ├── SymptomSelector.jsx
+│   │       └── SymptomResult.jsx
+│   ├── pages/
+│   │   ├── Home.jsx
+│   │   ├── DiseasePage.jsx
+│   │   ├── DrugPage.jsx
+│   │   ├── ComparePage.jsx
+│   │   ├── SymptomCheckerPage.jsx
+│   │   └── SearchResults.jsx
+│   ├── services/
+│   │   └── api.js
+│   ├── hooks/
+│   │   ├── useSearch.js
+│   │   ├── useDebounce.js
+│   │   ├── useLocalStorage.js
+│   │   └── useOffline.js
+│   ├── utils/
+│   │   ├── formatters.js
+│   │   └── constants.js
+│   ├── styles/
+│   │   └── index.css
+│   ├── App.jsx
+│   ├── main.jsx
+│   └── serviceWorker.js
+├── package.json
+├── vite.config.js
+└── tailwind.config.js
